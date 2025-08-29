@@ -175,12 +175,9 @@ class SiriusX():
 
         # get all ai signals
         ai_signals = self.get_available_ai_signals()
-        for sig in self.device.signals_recursive:
-            if 'AI ' in sig.name:
-                ai_signals.append(sig)
 
         # get selected signals
-        self.selected_channels = channel_settings.keys()
+        self.selected_channels = list(channel_settings.keys())
         self.selected_signals = [ai_signals[i] for i in self.selected_channels]
 
     def create_reader(self):
