@@ -2,7 +2,51 @@ import opendaq
 import numpy as np
 
 class SiriusX():
+    """
+    A high-level interface for configuring and acquiring data from Dewesoft 
+    Sirius X data acquisition devices using the opendaq API.
+
+    This class provides methods to:
+    - List and connect to available Sirius X devices.
+    - Configure device channels for various measurement types (e.g., IEPE, Voltage).
+    - Set and get sample rates.
+    - Acquire raw or sensitivity-corrected (processed) data from selected channels.
+    - Manage multi-channel data reading and buffer handling.
+    
+    Basic Usage
+    -----------
+    Examples
+    --------
+    >>> import opendaq
+    >>> from siriusx import SiriusX
+    >>> sx = SiriusX()
+    >>> sx.list_available_devices()
+    Name: SiriusX-1 Connection string: daq.sirius://192.168.1.100
+    >>> sx.connect("daq.sirius://192.168.1.100")
+    True
+    >>> sx.set_sample_rate(1000)
+    1000.0
+    >>> channel_settings = {
+    ...     0: {
+    ...         'Name': 'acc_X',
+    ...         'Measurement': 'IEPE',
+    ...         'Range': 10000,
+    ...         'HPFilter': 'AC 1Hz',
+    ...         'Excitation': 2.0,
+    ...         'Sensitivity': 100,
+    ...         'Sensitivity Unit': 'mV/g',
+    ...         'Unit': 'g',
+    ...     },
+    ... }
+    >>> sx.configure_channels(channel_settings)
+    >>> # Acquire 2 seconds of processed data as a dictionary
+    >>> data_dict = sx.acquire_processed(acquisition_time=2.0, return_dict=True)
+    """
+
     def __init__(self):
+        """
+        Initialize SiriusX instance.
+        """
         self.instance = opendaq.Instance()
         self.device = None
         self.connected = False
@@ -11,6 +55,21 @@ class SiriusX():
         self.active_signals = set()
 
     def list_available_devices(self, print_devices=True, return_list=False):
+        """
+        List available devices.
+
+        Parameters
+        ----------
+        print_devices : bool, optional
+            Print device info to stdout.
+        return_list : bool, optional
+            Return list of devices.
+
+        Returns
+        -------
+        list or None
+            List of devices if return_list is True.
+        """
 
         available_devices = []
 
@@ -27,6 +86,19 @@ class SiriusX():
             return available_devices
     
     def connect(self, connection_string):
+        """
+        Connect to a device.
+
+        Parameters
+        ----------
+        connection_string : str
+            Device connection string.
+
+        Returns
+        -------
+        bool
+            True if connected, False otherwise.
+        """
         try:
             self.device = self.instance.add_device(connection_string)
             self.connected = True
@@ -37,18 +109,51 @@ class SiriusX():
             return False
     
     def get_sample_rate(self):
+        """
+        Get current sample rate.
+
+        Returns
+        -------
+        float
+            Sample rate in Hz.
+        """
         self.sample_rate = self.device.get_property_value("SampleRate")
         return self.sample_rate
 
     def set_sample_rate(self, sample_rate):
+        """
+        Set sample rate. The device has a limited range and discrete steps. 
+        The method will return the sample_rate that was actually set.
+
+        Parameters
+        ----------
+        sample_rate : float
+            Desired sample rate in Hz.
+
+        Returns
+        -------
+        float
+            Set sample rate in Hz.
+        """
         self.device.set_property_value("SampleRate", sample_rate)
         return self.get_sample_rate()
 
     def get_available_channels(self):
+        """
+        Get all available channels.
+
+        Returns
+        -------
+        list
+            List of channel objects.
+        """
         self.channels = list(self.device.channels_recursive)
         return self.channels
 
     def list_available_channels(self):
+        """
+        Print all available channels and their properties.
+        """
         self.channels = self.get_available_channels()
 
         for chan in self.channels:
@@ -67,6 +172,14 @@ class SiriusX():
                     print('    ', f'{property_name:20s}', ':', f'{str(human_readable_value):10s}', selection_values, unit)
     
     def get_available_ai_signals(self):
+        """
+        Get all available AI signals.
+
+        Returns
+        -------
+        list
+            List of AI signal objects.
+        """
         self.available_ai_signals = []
         all_signals = self.device.signals_recursive
         for signal in all_signals:
@@ -135,7 +248,8 @@ class SiriusX():
 
     def configure_channels(self, channel_settings: dict):
         """
-        
+        Configure multiple channels.
+
         Parameters
         ----------
         channel_settings : dict
@@ -181,6 +295,9 @@ class SiriusX():
         self.selected_signals = [ai_signals[i] for i in self.selected_channels]
 
     def create_reader(self):
+        """
+        Create a multi-signal reader for selected channels.
+        """
         # create multi reader with selected signals
         self.multi_reader = opendaq.MultiReader(
             signals=self.selected_signals,
@@ -188,9 +305,27 @@ class SiriusX():
         )
     
     def start_reader(self):
+        """
+        Start the multi-signal reader.
+        """
         _ = self.multi_reader.read(count=0, timeout_ms=10)
 
     def read_raw(self, sample_count, timeout):
+        """
+        Read raw data from the device.
+
+        Parameters
+        ----------
+        sample_count : int
+            Number of samples to read.
+        timeout : float
+            Timeout in seconds.
+
+        Returns
+        -------
+        ndarray
+            Raw data array.
+        """
         # read raw data from the multi reader
         raw_data = self.multi_reader.read(
             count=sample_count,
@@ -201,6 +336,21 @@ class SiriusX():
         return raw_data
 
     def read_processed(self, sample_count, timeout):
+        """
+        Read and process data (apply sensitivity).
+
+        Parameters
+        ----------
+        sample_count : int
+            Number of samples to read.
+        timeout : float
+            Timeout in seconds.
+
+        Returns
+        -------
+        ndarray
+            Processed data array.
+        """
         # read raw data
         raw_data = self.read_raw(
             sample_count=sample_count,
@@ -218,12 +368,38 @@ class SiriusX():
         return processed_data
 
     def available_samples(self):
+        """
+        Get number of available samples in the reader (device buffer).
+
+        Returns
+        -------
+        int
+            Number of available samples.
+        """
         return self.multi_reader.available_count
 
     def stop_reader(self):
+        """
+        Stop and clean up the reader.
+        """
         self.multi_reader = None
 
     def acquire_raw(self, sample_count, timeout):
+        """
+        Acquire raw data in a single operation.
+
+        Parameters
+        ----------
+        sample_count : int
+            Number of samples to acquire.
+        timeout : float
+            Timeout in seconds.
+
+        Returns
+        -------
+        ndarray
+            Raw data array.
+        """
 
         self.create_reader()
         self.start_reader()
@@ -239,6 +415,21 @@ class SiriusX():
         return raw_data
     
     def acquire_processed(self, acqusition_time, return_dict=False):
+        """
+        Acquire and process data for a given time.
+
+        Parameters
+        ----------
+        acqusition_time : float
+            Acquisition time in seconds.
+        return_dict : bool, optional
+            If True, return dict with channel names and units.
+
+        Returns
+        -------
+        ndarray or dict
+            Processed data array or dict.
+        """
 
         # calc required samples
         sample_rate = self.get_sample_rate()
